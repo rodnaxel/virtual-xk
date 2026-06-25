@@ -110,7 +110,7 @@ class SerialListener(threading.Thread):
         data = self._serial.read(packet_size := 15)
         if len(data) < packet_size:
             return None
-        logger.debug(f"Received packet: {len(data)} : {data.hex()}")
+        logger.debug(f"Request: {len(data)} : {data.hex()}")
         return data
     
     def parse_packet(self, packet: bytes) -> dict:
@@ -127,19 +127,18 @@ class SerialListener(threading.Thread):
             "TGA table": packet[8],
             "sound speed": packet[9] << 8 | packet[10],
         }
-        logger.debug(f"Parsed packet data: {parsed_data}")
+        logger.debug(f"Request data: {parsed_data}")
         return parsed_data
     
     def create_response(self, parsed_data: dict, csv_row: dict) -> bytes:
         """Создание ответа на основе данных из CSV."""
-        
         response = bytearray(134)
         response[0] = parsed_data["SOP"]  
-        response[1] = parsed_data["depth_range"]  
-        
-        response[2] = parsed_data["gain"]  
-        response[3] = 0         # число коррелированных стопов
-        response[4] = 0         # число принятых стопов
+        response[1] = parsed_data["depth_range"]
+          
+        response[2] = int(csv_row.get("ku"))
+        response[3] = int(csv_row.get("m"))        
+        response[4] = int(csv_row.get("cnt"))         
         response[5] = 0x00      # резерв
         
         depth = int(csv_row.get("glub"))
@@ -153,15 +152,25 @@ class SerialListener(threading.Thread):
         duration = int(float(csv_row.get("lenth")))
         response[10] = (duration >> 8) & 0xff  # старший байт длительности
         response[11] = duration & 0xff         # младший байт длительности
+         
+        # Заполнение матрицы глубины, амплитуды и длительности для 20 точек
+        for i in range(20):
+            depth = int(csv_row.get(f"g{i}") or 0)    
+            response[12 + i * 6] = (depth >> 8) & 0xff  # старший байт глубины
+            response[13 + i * 6] = depth & 0xff         # младший байт глубины
+            
+            amplitude = int(csv_row.get(f"a{i}") or 0)
+            response[14 + i * 6] = (amplitude >> 8) & 0xff  # старший байт амплитуды
+            response[15 + i * 6] = amplitude & 0xff         # младший байт амплитуды
         
-        # Заполнение точек глубины и амплитуды
-        for i in range(12, 132):
-            response[i] = 0x00  # резервные байты
+            duration = int(float(csv_row.get(f"l{i}") or 0))
+            response[16 + i * 6] = (duration >> 8) & 0xff  # старший байт длительности
+            response[17 + i * 6] = duration & 0xff         # младший байт длительности
         
         response[132] = 0x0d  # резерв
         response[133] = 0x0a  # резерв
         
-        logger.debug(f"Created response from CSV data: {response.hex()}")
+        logger.debug(f"Response: {response.hex()}")
         return bytes(response)
     
 def main():
@@ -173,7 +182,6 @@ def main():
 
     serial_listener = SerialListener(args.port, args.baudrate, data_iter)
     serial_listener.start()
-    
     
     try:
         while serial_listener.is_alive():
