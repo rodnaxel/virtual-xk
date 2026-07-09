@@ -132,11 +132,19 @@ class SerialListener(threading.Thread):
     
     def create_response(self, parsed_data: dict, csv_row: dict) -> bytes:
         """Создание ответа на основе данных из CSV."""
+        mode = parsed_data["mode"]
+        
         response = bytearray(134)
         response[0] = parsed_data["SOP"]  
-        response[1] = parsed_data["depth_range"]
-          
-        response[2] = int(csv_row.get("ku"))
+        
+        # Ручной режим (0x52) или Автоматический режим (0x53)
+        if mode == 0x52:    
+            response[1] = parsed_data["depth_range"]
+            response[2] = parsed_data["gain"]
+        elif mode == 0x53:
+            response[1] = ord(csv_row.get("depth"))
+            response[2] = int(csv_row.get("ku"))    
+            
         response[3] = int(csv_row.get("m"))        
         response[4] = int(csv_row.get("cnt"))         
         response[5] = 0x00      # резерв
